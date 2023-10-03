@@ -29,9 +29,10 @@ public class RequestHandler implements Runnable{
 
             int requestContentLength = getRequestContentLength(br);
 
-            if (requestLine.startsWith("POST /user/signup") || requestLine.startsWith("POST /user/login")) {
+            if (requestLine.startsWith("POST /user/")) {
                 handlePostRequest(requestLine, requestContentLength, br, dos);
-            } else if (requestLine.startsWith("GET /")) {
+            }
+            if (requestLine.startsWith("GET /")) {
                 handleGetRequest(br, dos, requestLine);
             }
 
@@ -61,40 +62,85 @@ public class RequestHandler implements Runnable{
         Map<String, String> params = parseQueryString(requestBody);
 
         if (requestLine.startsWith("POST /user/signup")) {
-            User user = new User(params.get("userId"), params.get("password"), params.get("name"), params.get("email"));
-            MemoryUserRepository.getInstance().addUser(user);
-            response302Header(dos, "/index.html");
-        } else if (requestLine.startsWith("POST /user/login")) {
+            handleSignupRequest(params, dos);
+        }
+        if (requestLine.startsWith("POST /user/login")) {
             handleLoginRequest(params, dos);
         }
     }
 
-    private void handleGetRequest(BufferedReader br, DataOutputStream dos, String requestLine) throws IOException {
 
-        // 사용자가 /user/list에 접근 시도
-        if (requestLine.startsWith("GET /user/list.html")) {
-            // 로그인 상태 확인
+    private void handleGetRequest(BufferedReader br, DataOutputStream dos, String requestLine) throws IOException {
+        String requestPath = requestLine.split(" ")[1];
+
+        // 회원가입
+        if ("/user/form.html".equals(requestPath)) {
+            serveFile(dos, "webapp/user/form.html");
+            return;
+        }
+
+        // 로그인
+        if ("/user/login.html".equals(requestPath)) {
+            serveFile(dos, "webapp/user/login.html");
+            return;
+        }
+
+        // 로그인 실패
+        if ("/user/logined_failed.html".equals(requestPath)) {
+            serveFile(dos, "webapp/user/login_failed.html");
+            return;
+        }
+
+        // 유저 리스트
+        if ("/user/list.html".equals(requestPath) || "/user/userList".equals(requestPath)) {
             if (isLogined(br)) {
-                // list.html 파일의 경로를 응답으로 반환
-                String filePath = "webapp/list.html";
-                byte[] fileBytes = Files.readAllBytes(Paths.get(filePath));
-                response200Header(dos, fileBytes.length);
-                responseBody(dos, fileBytes);
+                serveFile(dos, "webapp/user/list.html");
             } else {
-                // 로그인 페이지로 리다이렉트
-                response302Header(dos, "/login.html");
+                response302Header(dos, "/user/login.html");
             }
             return;
         }
 
-        String filePath = "webapp" + requestLine.split(" ")[1];
-        if (!Files.exists(Paths.get(filePath))) {
-            response404Header(dos);  // 파일이 없으면 404 에러를 반환
+
+        // 메인 화면
+        if ("/index.html".equals(requestPath) || "/".equals(requestPath)) {
+            serveFile(dos, "webapp/index.html");
             return;
         }
-        byte[] body = Files.readAllBytes(Paths.get(filePath));
-        response200Header(dos, body.length);
-        responseBody(dos, body);
+
+        // css
+        if (requestPath.endsWith(".css")) {
+            serveCSSFile(dos, "webapp/css/styles.css");
+            return;
+        }
+
+        String filePath = "webapp" + requestPath;
+        if (!Files.exists(Paths.get(filePath))) {
+            response404Header(dos);
+        } else {
+            serveFile(dos, filePath);
+        }
+    }
+    private void serveFile(DataOutputStream dos, String filePath) throws IOException {
+        byte[] fileBytes = Files.readAllBytes(Paths.get(filePath));
+        response200Header(dos, fileBytes.length);
+        responseBody(dos, fileBytes);
+    }
+    private void serveCSSFile(DataOutputStream dos, String cssFilePath) throws IOException {
+        byte[] fileBytes = Files.readAllBytes(Paths.get(cssFilePath));
+        response200CSSHeader(dos, fileBytes.length);
+        responseBody(dos, fileBytes);
+    }
+
+    private void response200CSSHeader(DataOutputStream dos, int lengthOfBodyContent) {
+        try {
+            dos.writeBytes("HTTP/1.1 200 OK \r\n");
+            dos.writeBytes("Content-Type: text/css\r\n");
+            dos.writeBytes("Content-Length: " + lengthOfBodyContent + "\r\n");
+            dos.writeBytes("\r\n");
+        } catch (IOException e) {
+            log.log(Level.SEVERE, e.getMessage());
+        }
     }
 
 
@@ -110,6 +156,13 @@ public class RequestHandler implements Runnable{
             // 로그인 실패
             response302Header(dos, "/user/logined_failed.html");
         }
+    }
+
+
+    private void handleSignupRequest(Map<String, String> params, DataOutputStream dos) {
+        User user = new User(params.get("userId"), params.get("password"), params.get("name"), params.get("email"));
+        MemoryUserRepository.getInstance().addUser(user);
+        response302Header(dos, "/index.html");
     }
 
     private void response302HeaderWithCookie(DataOutputStream dos, String location, String cookie) throws IOException {
